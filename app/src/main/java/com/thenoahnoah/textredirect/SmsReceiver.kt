@@ -14,13 +14,18 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        Log.d(TAG, "onReceive called with action: ${intent.action}")
+        
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) {
+            Log.d(TAG, "Not an SMS received action, ignoring")
             return
         }
 
         // Check if service is enabled
         val prefs = context.getSharedPreferences("TextRedirectPrefs", Context.MODE_PRIVATE)
         val isServiceEnabled = prefs.getBoolean("service_enabled", false)
+        
+        Log.d(TAG, "Service enabled status: $isServiceEnabled")
         
         if (!isServiceEnabled) {
             Log.d(TAG, "Service is disabled, ignoring SMS")
@@ -29,12 +34,14 @@ class SmsReceiver : BroadcastReceiver() {
 
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         
+        Log.d(TAG, "Received ${messages.size} SMS messages")
+        
         for (smsMessage in messages) {
             val sender = smsMessage.displayOriginatingAddress
             val messageBody = smsMessage.messageBody
             val timestamp = smsMessage.timestampMillis
             
-            Log.d(TAG, "SMS received from: $sender")
+            Log.d(TAG, "SMS received from: $sender, message: $messageBody")
             
             // Start the service to forward the message
             val serviceIntent = Intent(context, MessageForwardingService::class.java).apply {
@@ -43,10 +50,16 @@ class SmsReceiver : BroadcastReceiver() {
                 putExtra("timestamp", timestamp)
             }
             
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                    Log.d(TAG, "Started foreground service")
+                } else {
+                    context.startService(serviceIntent)
+                    Log.d(TAG, "Started service")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start service", e)
             }
         }
     }

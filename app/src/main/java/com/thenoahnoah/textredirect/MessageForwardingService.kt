@@ -1,6 +1,5 @@
 package com.thenoahnoah.textredirect
 
-import android.accounts.AccountManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -19,31 +18,56 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.Properties
-import javax.mail.Authenticator
-import javax.mail.Message
-import javax.mail.MessagingException
-import javax.mail.PasswordAuthentication
-import javax.mail.Session
-import javax.mail.Transport
-import javax.mail.internet.InternetAddress
-import javax.mail.internet.MimeMessage
 
 class MessageForwardingService : Service() {
     companion object {
         private const val TAG = "MessageForwardingService"
         private const val CHANNEL_ID = "MessageForwardingChannel"
         private const val NOTIFICATION_ID = 1
+        
+        // Deduplication cache - stores message hashes and timestamps
+        private val recentMessages = mutableMapOf<String, Long>()
+        private const val DEDUP_WINDOW_MS = 5000L // 5 seconds
+        
+        // Generate hash for deduplication
+        private fun getMessageHash(sender: String, message: String, timestamp: Long): String {
+            // Use timestamp within 5 second window to catch duplicates
+            val roundedTimestamp = (timestamp / DEDUP_WINDOW_MS) * DEDUP_WINDOW_MS
+            return "$sender:$message:$roundedTimestamp".hashCode().toString()
+        }
+        
+        // Check if message was recently processed
+        private fun isDuplicate(sender: String, message: String, timestamp: Long): Boolean {
+            val hash = getMessageHash(sender, message, timestamp)
+            val now = System.currentTimeMillis()
+            
+            // Clean up old entries (older than 30 seconds)
+            recentMessages.entries.removeIf { now - it.value > 30000 }
+            
+            // Check if this message was recently processed
+            if (recentMessages.containsKey(hash)) {
+                Log.d(TAG, "Duplicate message detected, skipping")
+                return true
+            }
+            
+            // Mark as processed
+            recentMessages[hash] = now
+            return false
+        }
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + Job())
+    private lateinit var gmailHelper: GmailApiHelper
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        gmailHelper = GmailApiHelper(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand called")
+        
         // Start as foreground service
         startForeground(NOTIFICATION_ID, createNotification("Waiting for messages..."))
 
@@ -52,26 +76,46 @@ class MessageForwardingService : Service() {
             val message = it.getStringExtra("message") ?: ""
             val timestamp = it.getLongExtra("timestamp", System.currentTimeMillis())
 
+            Log.d(TAG, "Processing message from $sender: $message")
+            
+            // Check for duplicate
+            if (isDuplicate(sender, message, timestamp)) {
+                AppLogger.d(TAG, "Skipping duplicate message")
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
+
+            AppLogger.i(TAG, "Processing message from $sender")
             serviceScope.launch {
                 forwardMessageToGmail(sender, message, timestamp)
                 stopSelf(startId)
             }
+        } ?: run {
+            Log.e(TAG, "Intent was null!")
+            stopSelf(startId)
         }
 
         return START_NOT_STICKY
     }
 
-    private fun forwardMessageToGmail(sender: String, messageBody: String, timestamp: Long) {
+    private suspend fun forwardMessageToGmail(sender: String, messageBody: String, timestamp: Long) {
         try {
-            val prefs = getSharedPreferences("TextRedirectPrefs", Context.MODE_PRIVATE)
-            val userEmail = getUserEmail()
+            Log.d(TAG, "forwardMessageToGmail started")
             
-            if (userEmail == null) {
-                Log.e(TAG, "No Gmail account found on device")
-                updateNotification("Error: No Gmail account found")
+            if (!gmailHelper.isSignedIn()) {
+                AppLogger.e(TAG, "User not signed in to Gmail")
+                updateNotification("Error: Not signed in to Gmail")
                 return
             }
 
+            val userEmail = gmailHelper.getUserEmail()
+            if (userEmail == null) {
+                AppLogger.e(TAG, "Could not get user email")
+                updateNotification("Error: Could not get email address")
+                return
+            }
+
+            Log.d(TAG, "Sending to: $userEmail")
             updateNotification("Forwarding message from $sender...")
 
             // Format the message
@@ -89,63 +133,23 @@ class MessageForwardingService : Service() {
                 $messageBody
             """.trimIndent()
 
-            // Send email using JavaMail (simplified - in production use Gmail API)
-            sendEmailSimple(userEmail, emailSubject, emailBody)
+            Log.d(TAG, "Calling sendEmail...")
             
-            Log.d(TAG, "Message forwarded successfully to $userEmail")
-            updateNotification("Message forwarded successfully")
+            // Send email using Gmail API
+            val result = gmailHelper.sendEmail(userEmail, emailSubject, emailBody)
+            
+            if (result.isSuccess) {
+                AppLogger.i(TAG, "✓ Message forwarded successfully to $userEmail")
+                updateNotification("Message forwarded successfully")
+            } else {
+                val error = result.exceptionOrNull()
+                AppLogger.e(TAG, "Failed to forward message: ${error?.message}")
+                updateNotification("Error: ${error?.message}")
+            }
             
         } catch (e: Exception) {
             Log.e(TAG, "Error forwarding message", e)
             updateNotification("Error forwarding message: ${e.message}")
-        }
-    }
-
-    private fun getUserEmail(): String? {
-        try {
-            val accountManager = AccountManager.get(this)
-            val accounts = accountManager.getAccountsByType("com.google")
-            
-            if (accounts.isNotEmpty()) {
-                return accounts[0].name
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting user email", e)
-        }
-        return null
-    }
-
-    private fun sendEmailSimple(toEmail: String, subject: String, body: String) {
-        // Note: This is a simplified version using SMTP
-        // For production, you should use Gmail API with OAuth2
-        // This requires the app to have an app-specific password or OAuth token
-        
-        try {
-            val props = Properties().apply {
-                put("mail.smtp.auth", "true")
-                put("mail.smtp.starttls.enable", "true")
-                put("mail.smtp.host", "smtp.gmail.com")
-                put("mail.smtp.port", "587")
-            }
-
-            // Note: You'll need to implement OAuth2 or use app-specific password
-            // For now, this is a placeholder that logs the intent
-            Log.d(TAG, "Would send email to: $toEmail")
-            Log.d(TAG, "Subject: $subject")
-            Log.d(TAG, "Body: $body")
-            
-            // Store in local log for now
-            val prefs = getSharedPreferences("TextRedirectPrefs", Context.MODE_PRIVATE)
-            val logCount = prefs.getInt("log_count", 0)
-            prefs.edit().apply {
-                putString("log_$logCount", "$subject\n$body")
-                putInt("log_count", logCount + 1)
-                apply()
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in sendEmailSimple", e)
-            throw e
         }
     }
 

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">TextRedirect</string>
+    <!-- Replace with your actual OAuth 2.0 Web Client ID from Google Cloud Console -->
+    <string name="default_web_client_id">872500526770-7kba390grtpsv3ucuoeasph2tjc9cfug.apps.googleusercontent.com</string>
 </resources>
