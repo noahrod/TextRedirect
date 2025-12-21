@@ -1,9 +1,6 @@
 name: Build Debug APK
 
 on:
-  push:
-    tags:
-      - 'v*'  # Trigger on version tags like v0.80, v1.0.0, etc.
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 jobs:
