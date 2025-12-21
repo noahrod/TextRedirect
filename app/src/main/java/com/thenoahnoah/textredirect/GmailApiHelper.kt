@@ -116,7 +116,9 @@ class GmailApiHelper(private val context: Context) {
             InternetAddress(to)
         )
         email.subject = subject
-        email.setText(bodyText)
+        
+        // Set HTML content
+        email.setContent(bodyText, "text/html; charset=utf-8")
         
         return email
     }

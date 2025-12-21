@@ -1,0 +1,89 @@
+name: Build Debug APK
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v0.80, v1.0.0, etc.
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+      
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+      
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+      
+      - name: Get version name
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION="debug-$(date +'%Y%m%d-%H%M%S')"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      
+      - name: Rename APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk TextRedirect-${{ steps.version.outputs.version }}.apk
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: TextRedirect-*.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## 📱 TextRedirect ${{ steps.version.outputs.version }}
+            
+            Forward SMS/RCS messages to Gmail automatically!
+            
+            ### 📥 Installation
+            1. Download `TextRedirect-${{ steps.version.outputs.version }}.apk` below
+            2. Enable "Install from Unknown Sources" in Android Settings
+            3. Install the APK on your device
+            
+            ### 🚀 Setup
+            1. Open the app and sign in with your Google account
+            2. Grant notification access (Settings → Apps → Special app access → Notification access)
+            3. Grant contacts and accounts permissions
+            4. Toggle "SMS Forwarding" ON
+            
+            ### ✨ Features
+            - 📨 Forward SMS, MMS, and RCS messages to Gmail
+            - 👤 Shows contact names when available
+            - 🎨 Beautiful HTML email formatting
+            - 📊 Activity logs to track forwarded messages
+            - 🔒 Secure OAuth 2.0 authentication
+            
+            ### 📝 What's New
+            See the release notes below for changes in this version.
+            
+            ---
+            
+            **Note**: This is a debug build for testing. For production use, consider building a signed release APK.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TextRedirect-APK-${{ steps.version.outputs.version }}
+          path: TextRedirect-*.apk
+          retention-days: 30

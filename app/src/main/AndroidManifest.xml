@@ -2,18 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions for SMS receiving -->
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
-    <uses-permission android:name="android.permission.READ_SMS" />
-    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
-    <uses-permission android:name="android.permission.RECEIVE_MMS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
     <!-- Permissions for Gmail/Email -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.GET_ACCOUNTS" />
     <uses-permission android:name="android.permission.USE_CREDENTIALS" />
+    
+    <!-- For contact lookup -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     
     <!-- Foreground service permission (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -46,28 +42,9 @@
             </intent-filter>
         </activity>
         
-        <!-- SMS Receiver -->
-        <receiver
-            android:name=".SmsReceiver"
-            android:exported="true"
-            android:permission="android.permission.BROADCAST_SMS"
-            android:directBootAware="true">
-            <intent-filter android:priority="2147483647">
-                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
-                <action android:name="android.provider.Telephony.SMS_DELIVER" />
-            </intent-filter>
-        </receiver>
-        
         <!-- Foreground Service -->
         <service
             android:name=".MessageForwardingService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-            
-        <!-- SMS Monitor Service -->
-        <service
-            android:name=".SmsMonitorService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

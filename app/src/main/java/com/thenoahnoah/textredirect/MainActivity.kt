@@ -76,9 +76,8 @@ class MainActivity : ComponentActivity() {
 
     private fun requestPermissions() {
         val permissions = mutableListOf(
-            Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_SMS,
-            Manifest.permission.GET_ACCOUNTS
+            Manifest.permission.GET_ACCOUNTS,
+            Manifest.permission.READ_CONTACTS
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -153,6 +152,10 @@ fun HomeTab(
     var hasPermissions by remember {
         mutableStateOf(checkPermissions(context))
     }
+    
+    var hasNotificationAccess by remember {
+        mutableStateOf(isNotificationAccessEnabled(context))
+    }
 
     var isSignedIn by remember {
         mutableStateOf(gmailHelper.isSignedIn())
@@ -191,17 +194,8 @@ fun HomeTab(
     // Recheck permissions and sign-in status
     LaunchedEffect(Unit) {
         hasPermissions = checkPermissions(context)
+        hasNotificationAccess = isNotificationAccessEnabled(context)
         isSignedIn = gmailHelper.isSignedIn()
-        
-        // Start monitoring service if already enabled
-        if (isServiceEnabled && isSignedIn && hasPermissions) {
-            val serviceIntent = Intent(context, SmsMonitorService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
-            }
-        }
     }
 
     Column(
@@ -308,6 +302,45 @@ fun HomeTab(
             }
         }
         
+        // Notification access warning
+        if (!hasNotificationAccess) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "⚠️ Notification Access Required",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "This app needs notification access to detect incoming messages (SMS/RCS).",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            val intent = Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+                            context.startActivity(intent)
+                        }
+                    ) {
+                        Text("Open Settings")
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        
         Card(
             modifier = Modifier.fillMaxWidth(),
             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -328,15 +361,19 @@ fun HomeTab(
                     
                     Switch(
                         checked = isServiceEnabled,
-                        enabled = isSignedIn && hasPermissions,
+                        enabled = isSignedIn && hasPermissions && hasNotificationAccess,
                         onCheckedChange = { enabled ->
                             val currentPermissions = checkPermissions(context)
+                            val currentNotificationAccess = isNotificationAccessEnabled(context)
                             hasPermissions = currentPermissions
+                            hasNotificationAccess = currentNotificationAccess
                             
                             if (!isSignedIn) {
                                 signInLauncher.launch(googleSignInClient.signInIntent)
                             } else if (!currentPermissions) {
                                 onRequestPermissions()
+                            } else if (!currentNotificationAccess) {
+                                Toast.makeText(context, "Please grant notification access first", Toast.LENGTH_LONG).show()
                             } else {
                                 isServiceEnabled = enabled
                                 prefs.edit().putBoolean("service_enabled", enabled).apply()
@@ -345,18 +382,6 @@ fun HomeTab(
                                     AppLogger.i("MainActivity", "SMS forwarding enabled")
                                 } else {
                                     AppLogger.i("MainActivity", "SMS forwarding disabled")
-                                }
-                                
-                                // Start or stop the monitoring service
-                                val serviceIntent = Intent(context, SmsMonitorService::class.java)
-                                if (enabled) {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                        context.startForegroundService(serviceIntent)
-                                    } else {
-                                        context.startService(serviceIntent)
-                                    }
-                                } else {
-                                    context.stopService(serviceIntent)
                                 }
                                 
                                 Toast.makeText(
@@ -374,9 +399,10 @@ fun HomeTab(
                 Text(
                     text = when {
                         !isSignedIn -> "Please sign in with Google to enable forwarding."
+                        !hasNotificationAccess -> "Please grant notification access to detect messages."
                         !hasPermissions -> "Please grant required permissions."
-                        isServiceEnabled -> "✓ Service is active. SMS messages will be forwarded to your Gmail."
-                        else -> "Service is inactive. Enable to start forwarding SMS messages."
+                        isServiceEnabled -> "✓ Service is active. Messages will be forwarded to your Gmail."
+                        else -> "Service is inactive. Enable to start forwarding messages."
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -561,8 +587,7 @@ fun AboutTab() {
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
-                
+                modifier = Modifier.padding(20.dp)
             ) {
                 Text(
                     text = "Developed by",
@@ -576,6 +601,21 @@ fun AboutTab() {
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        OutlinedButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/noahrod/TextRedirect"))
+                context.startActivity(intent)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = "🔗 View on GitHub",
+                style = MaterialTheme.typography.titleMedium
+            )
         }
         
         Spacer(modifier = Modifier.height(24.dp))
@@ -617,11 +657,26 @@ fun AboutTab() {
     }
 }
 
+fun isNotificationAccessEnabled(context: Context): Boolean {
+    val packageName = context.packageName
+    val flat = android.provider.Settings.Secure.getString(
+        context.contentResolver,
+        "enabled_notification_listeners"
+    )
+    if (flat.isNullOrEmpty()) {
+        return false
+    }
+    val names = flat.split(":")
+    return names.any { 
+        val componentName = android.content.ComponentName.unflattenFromString(it)
+        componentName?.packageName == packageName
+    }
+}
+
 fun checkPermissions(context: Context): Boolean {
     val requiredPermissions = mutableListOf(
-        Manifest.permission.RECEIVE_SMS,
-        Manifest.permission.READ_SMS,
-        Manifest.permission.GET_ACCOUNTS
+        Manifest.permission.GET_ACCOUNTS,
+        Manifest.permission.READ_CONTACTS
     )
     
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
