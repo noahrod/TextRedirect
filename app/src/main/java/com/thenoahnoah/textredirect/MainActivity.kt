@@ -575,7 +575,7 @@ fun AboutTab() {
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Version 0.80",
+            text = "Version ${BuildConfig.VERSION_NAME}",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
