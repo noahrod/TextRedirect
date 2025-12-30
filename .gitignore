@@ -13,5 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
-
 .DS_Store
+/app/release
+keystore.properties
+*.jks
+*.keystore
