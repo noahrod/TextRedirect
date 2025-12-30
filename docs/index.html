@@ -41,6 +41,25 @@
       .badge-sms { background-color: #757575; }
       .badge-mms { background-color: #43A047; }
       .badge-rcs { background-color: #1E88E5; }
+      .message-preview {
+        border-radius: 0.75rem;
+        border: 1px solid var(--tr-card-border);
+        padding: 1rem 1.1rem;
+        background: rgba(255,255,255,0.9);
+      }
+      :root[data-bs-theme="dark"] .message-preview {
+        background: rgba(15,23,42,0.9);
+        border-color: rgba(148,163,184,.7);
+      }
+      .key-details-card {
+        border-radius: 0.75rem;
+        border: 1px solid var(--tr-card-border);
+        background: rgba(248,250,252,0.9);
+      }
+      :root[data-bs-theme="dark"] .key-details-card {
+        background: rgba(15,23,42,0.95);
+        border-color: rgba(148,163,184,.7);
+      }
       footer {
         border-top: 1px solid var(--tr-card-border);
         margin-top: 4rem;
@@ -113,7 +132,7 @@
                     <span class="fw-semibold">Jane Doe <span class="text-muted">(+1 555‑123‑4567)</span></span>
                     <span class="badge badge-rcs text-white">RCS</span>
                   </div>
-                  <div class="border rounded p-3 bg-light mb-2">
+                  <div class="message-preview mb-2">
                     <p class="mb-0">Hey, just checking if we're still on for tonight? 😊</p>
                   </div>
                   <small class="text-muted d-block mb-2">Forwarded by TextRedirect • Delivered to your Gmail inbox</small>
@@ -214,7 +233,7 @@
               </div>
             </div>
             <div class="col-lg-5">
-              <div class="p-4 bg-light rounded-3 border">
+              <div class="p-4 key-details-card">
                 <h6 class="fw-semibold mb-2">Key details</h6>
                 <ul class="list-unstyled text-muted mb-0 small">
                   <li><strong>App name:</strong> TextRedirect</li>
@@ -222,6 +241,7 @@
                   <li><strong>Minimum Android:</strong> 7.0 (API 24)</li>
                   <li><strong>Code license:</strong> See project on GitHub</li>
                   <li><strong>Issues & feedback:</strong> GitHub Issues</li>
+                  <li><strong>Great for:</strong> Forwarding OTP codes when you don’t have your phone nearby</li>
                 </ul>
               </div>
             </div>
