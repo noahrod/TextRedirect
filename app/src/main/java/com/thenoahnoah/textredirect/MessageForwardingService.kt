@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -78,6 +80,7 @@ class MessageForwardingService : Service() {
             val message = it.getStringExtra("message") ?: ""
             val timestamp = it.getLongExtra("timestamp", System.currentTimeMillis())
             val messageType = it.getStringExtra("messageType") ?: "SMS"
+            val imagePath = it.getStringExtra("imagePath")
 
             Log.d(TAG, "Processing message from $sender: $message")
             
@@ -90,7 +93,7 @@ class MessageForwardingService : Service() {
 
             AppLogger.i(TAG, "Processing message from $sender")
             serviceScope.launch {
-                forwardMessageToGmail(sender, message, timestamp, messageType)
+                forwardMessageToGmail(sender, message, timestamp, messageType, imagePath)
                 stopSelf(startId)
             }
         } ?: run {
@@ -101,7 +104,7 @@ class MessageForwardingService : Service() {
         return START_NOT_STICKY
     }
 
-    private suspend fun forwardMessageToGmail(sender: String, messageBody: String, timestamp: Long, messageType: String) {
+    private suspend fun forwardMessageToGmail(sender: String, messageBody: String, timestamp: Long, messageType: String, imagePath: String?) {
         try {
             Log.d(TAG, "forwardMessageToGmail started")
             
@@ -133,8 +136,22 @@ class MessageForwardingService : Service() {
             val dateFormat = SimpleDateFormat("EEEE, MMMM dd, yyyy 'at' hh:mm:ss a", Locale.getDefault())
             val formattedDate = dateFormat.format(Date(timestamp))
             
+            // Convert image to base64 if present
+            val imageBase64 = imagePath?.let { path ->
+                try {
+                    val file = File(path)
+                    if (file.exists()) {
+                        val bytes = file.readBytes()
+                        android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    } else null
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error reading image file", e)
+                    null
+                }
+            }
+            
             val emailSubject = "[$messageType] Message from ${contactName ?: sender}"
-            val emailBody = createHtmlEmail(displayName, messageBody, formattedDate, messageType)
+            val emailBody = createHtmlEmail(displayName, messageBody, formattedDate, messageType, imageBase64)
 
             Log.d(TAG, "Calling sendEmail...")
             
@@ -144,6 +161,15 @@ class MessageForwardingService : Service() {
             if (result.isSuccess) {
                 AppLogger.i(TAG, "✓ Message forwarded successfully to $userEmail")
                 updateNotification("Message forwarded successfully")
+                
+                // Clean up temp image file
+                imagePath?.let { path ->
+                    try {
+                        File(path).delete()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to delete temp image: ${e.message}")
+                    }
+                }
             } else {
                 val error = result.exceptionOrNull()
                 AppLogger.e(TAG, "Failed to forward message: ${error?.message}")
@@ -216,7 +242,7 @@ class MessageForwardingService : Service() {
         return null
     }
     
-    private fun createHtmlEmail(sender: String, message: String, date: String, messageType: String): String {
+    private fun createHtmlEmail(sender: String, message: String, date: String, messageType: String, imageBase64: String? = null): String {
         val typeColor = when (messageType) {
             "RCS" -> "#1E88E5"
             "MMS" -> "#43A047"
@@ -228,6 +254,25 @@ class MessageForwardingService : Service() {
             "MMS" -> "📷"
             else -> "📱" // SMS
         }
+        
+        // Build image section if image is present
+        val imageSection = if (imageBase64 != null) {
+            """
+                                <!-- Image Attachment -->
+                                <tr>
+                                    <td style="padding: 0 40px 20px;">
+                                        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border: 1px solid #e9ecef;">
+                                            <div style="color: #6c757d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">
+                                                📷 Image Attachment
+                                            </div>
+                                            <div style="text-align: center;">
+                                                <img src="data:image/jpeg;base64,$imageBase64" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" alt="Message Image" />
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+            """
+        } else ""
         
         return """
             <!DOCTYPE html>
@@ -284,13 +329,11 @@ class MessageForwardingService : Service() {
                                             <div style="color: #6c757d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">
                                                 Message
                                             </div>
-                                            <div style="color: #212529; font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">
-                                                ${message.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}
-                                            </div>
+                                            <div style="color: #212529; font-size: 16px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">${message.trim().replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")}</div>
                                         </div>
                                     </td>
                                 </tr>
-                                
+$imageSection
                                 <!-- Timestamp -->
                                 <tr>
                                     <td style="padding: 0 40px 30px;">
